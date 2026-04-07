@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "330383751094",
+    "project_id": "nsnap-bb733",
+    "storage_bucket": "nsnap-bb733.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:330383751094:android:5b010b6a0fb932c09a3317",
+        "android_client_info": {
+          "package_name": "com.example.nsnap"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "330383751094-luqshjoteq4hr90gv68vr9hripqec9rb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.nsnap",
+            "certificate_hash": "31b4f947c2bc64e858b6c14c10d0f6643e7833b0"
+          }
+        },
+        {
+          "client_id": "330383751094-7gn177t7uto4feu2kufcaimh0p0jbijo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAD_9iOjRHoShHyg3zKK79QPSlQxrrHh18"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "330383751094-7gn177t7uto4feu2kufcaimh0p0jbijo.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "330383751094-jr0i1103jb4di637cap1chcfkhg41kpm.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.nsnap"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,48 @@
+name: nsnap
+description: "Campus Talent Showcase Application"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_maps_flutter: ^2.5.3
+  ar_flutter_plugin_flutterflow: 0.7.48
+  vector_math: ^2.1.4
+
+  # UI/Icons
+  cupertino_icons: ^1.0.8
+
+  # Firebase & Authentication
+  firebase_core: ^4.6.0
+  firebase_auth: ^6.3.0
+  google_sign_in: ^7.2.0
+  cloud_firestore: ^6.2.0
+  firebase_storage: ^13.2.0
+  image_picker: ^1.2.1
+  video_player: ^2.10.1
+  geolocator: ^12.0.0 # Updated to a more stable version for Flutter 3.x
+  cached_network_image: ^3.4.1
+  flutter_dotenv: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env
+    - assets/
+    # If you create subfolders later, like assets/images/, add them here:
+    # - assets/images/
+
+  fonts:
+    - family: Modern Sans
+      fonts:
+        - asset: assets/fonts/modern-sans.ttf # <--- Matched to your exact filename
