@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:video_player/video_player.dart'; // NEW IMPORT
+import 'package:video_player/video_player.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
 import 'comments_screen.dart';
+import '../living_photo_viewer.dart';
 
 // Palette Reference
 const Color c1DeepForest = Color(0xFF0F2A1D);
@@ -14,8 +17,9 @@ const Color c5CreamGreen = Color(0xFFE3EED4);
 
 class PostDetailScreen extends StatefulWidget {
   final Map<String, dynamic> postData;
+  final String postId; // <--- MANDATORY: Passed from Feed/Profile/Explore
 
-  const PostDetailScreen({super.key, required this.postData});
+  const PostDetailScreen({super.key, required this.postData, required this.postId});
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -28,7 +32,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   // --- LIKE LOGIC ---
   Future<void> _toggleLike(List currentLikes, String postId) async {
     bool isLiked = currentLikes.contains(currentUserId);
-
     if (isLiked) {
       await FirebaseFirestore.instance.collection('posts').doc(postId).update({
         'likes': FieldValue.arrayRemove([currentUserId])
@@ -48,14 +51,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: c1DeepForest,
-        title: const Text("Edit Caption", style: TextStyle(color: c5CreamGreen)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Edit Caption", style: TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold)),
         content: TextField(
           controller: editController,
           maxLines: 3,
           style: const TextStyle(color: c5CreamGreen),
-          decoration: const InputDecoration(
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c2DeepOlive)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: c3MediumSage)),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: c2DeepOlive.withValues(alpha: 0.5),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
           ),
         ),
         actions: [
@@ -64,28 +69,35 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             child: const Text("Cancel", style: TextStyle(color: c4LightSage)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: c3MediumSage, foregroundColor: c5CreamGreen),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: c3MediumSage,
+                foregroundColor: c1DeepForest,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+            ),
             onPressed: () async {
               await FirebaseFirestore.instance.collection('posts').doc(postId).update({
                 'caption': editController.text.trim()
               });
-              if (mounted) Navigator.pop(context);
+              if (mounted) {
+                Navigator.pop(context);
+              }
             },
-            child: const Text("Save"),
+            child: const Text("Save", style: TextStyle(fontWeight: FontWeight.bold)),
           )
         ],
       ),
     );
   }
 
-  // --- DELETE POST LOGIC (Updated to handle both Images & Videos) ---
+  // --- DELETE POST LOGIC (Storage Cleanup included) ---
   Future<void> _deletePost(String postId, Map<String, dynamic> post) async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: c1DeepForest,
-        title: const Text("Delete Post?", style: TextStyle(color: Colors.redAccent)),
-        content: const Text("This cannot be undone.", style: TextStyle(color: c5CreamGreen)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Delete Post?", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+        content: const Text("This will permanently remove the media and post data.", style: TextStyle(color: c4LightSage)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel", style: TextStyle(color: c4LightSage))),
           ElevatedButton(
@@ -99,36 +111,33 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
     if (confirm != true) return;
 
-    // 1. Check the type and delete the correct files from Storage
+    // 1. Storage Cleanup (Images or Video)
     String type = post['type'] ?? 'image';
-
-    if (type == 'video' && post['videoUrl'] != null) {
-      try {
+    try {
+      if (type == 'video' && post['videoUrl'] != null) {
         await FirebaseStorage.instance.refFromURL(post['videoUrl']).delete();
-      } catch (e) {
-        print("Error deleting video: $e");
-      }
-    } else {
-      List imageUrls = post['imageUrls'] ?? [];
-      for (String url in imageUrls) {
-        try {
+      } else {
+        List imageUrls = post['imageUrls'] ?? [];
+        for (var url in imageUrls) {
           await FirebaseStorage.instance.refFromURL(url).delete();
-        } catch (e) {
-          print("Error deleting image: $e");
         }
       }
+    } catch (e) {
+      debugPrint("Storage cleanup warning: $e");
     }
 
-    // 2. Delete the document from Firestore
+    // 2. Database Cleanup
     await FirebaseFirestore.instance.collection('posts').doc(postId).delete();
 
-    // 3. Go back
-    if (mounted) Navigator.pop(context);
+    if (mounted) {
+      Navigator.pop(context);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    String postId = widget.postData['postId'];
+    // Relying on the constructor ID for stability
+    final String postId = widget.postId;
 
     return Scaffold(
       backgroundColor: c1DeepForest,
@@ -141,39 +150,38 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       body: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('posts').doc(postId).snapshots(),
           builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: c3MediumSage));
+            }
             if (!snapshot.hasData || !snapshot.data!.exists) {
-              return const Center(child: Text("Post deleted.", style: TextStyle(color: c4LightSage)));
+              return const Center(child: Text("This post is no longer available.", style: TextStyle(color: c4LightSage)));
             }
 
             var post = snapshot.data!.data() as Map<String, dynamic>;
-
-            // Extract core data
             String type = post['type'] ?? 'image';
             List imageUrls = post['imageUrls'] ?? [];
             List likes = post['likes'] ?? [];
             bool isLikedByMe = likes.contains(currentUserId);
             bool isMyPost = post['userId'] == currentUserId;
-            String displayUsername = post['username'] ?? "Nsnap Creator";
+            String displayUsername = post['username'] ?? "Nsnap User";
 
             return SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- POST HEADER ---
+                  // --- HEADER ---
                   ListTile(
                     leading: const CircleAvatar(
                       backgroundColor: c2DeepOlive,
                       child: Icon(Icons.person, color: c4LightSage),
                     ),
                     title: Text(displayUsername, style: const TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold)),
-
-                    // THREE DOTS MENU
                     trailing: isMyPost ? PopupMenuButton<String>(
                       icon: const Icon(Icons.more_vert, color: c5CreamGreen),
                       color: c2DeepOlive,
                       onSelected: (value) {
-                        if (value == 'edit') _editCaption(postId, post['caption']);
-                        if (value == 'delete') _deletePost(postId, post); // Pass the whole post to know if it's a video
+                        if (value == 'edit') _editCaption(postId, post['caption'] ?? "");
+                        if (value == 'delete') _deletePost(postId, post);
                       },
                       itemBuilder: (context) => [
                         const PopupMenuItem(value: 'edit', child: Text("Edit Caption", style: TextStyle(color: c5CreamGreen))),
@@ -182,103 +190,78 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     ) : null,
                   ),
 
-                  // --- MEDIA RENDERER (IMAGE OR VIDEO) ---
-                  SizedBox(
-                    height: type == 'video' ? 500 : 400, // Videos look better a little taller
-                    child: type == 'video'
-                        ? DetailVideoPlayer(videoUrl: post['videoUrl']) // The new video player widget!
-                        : PageView.builder(
-                      itemCount: imageUrls.length,
-                      onPageChanged: (index) {
-                        setState(() => _currentImageIndex = index);
-                      },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          imageUrls[index],
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                        );
-                      },
+                  // --- MEDIA SECTION ---
+                  GestureDetector(
+                    onDoubleTap: () => _toggleLike(likes, postId),
+                    child: SizedBox(
+                      height: type == 'video' ? 500 : 400,
+                      child: type == 'video'
+                          ? DetailVideoPlayer(videoUrl: post['videoUrl'] ?? "")
+                          : PageView.builder(
+                        itemCount: imageUrls.length,
+                        onPageChanged: (index) => setState(() => _currentImageIndex = index),
+                        itemBuilder: (context, index) {
+                          String url = imageUrls[index];
+                          return GestureDetector(
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LivingPhotoViewer(imageUrl: url))),
+                            child: CachedNetworkImage(
+                              imageUrl: url,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              placeholder: (context, url) => Container(color: c2DeepOlive),
+                              errorWidget: (context, url, error) => const Icon(Icons.error),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
 
-                  // --- INTERACTION BAR ---
+                  // --- ACTIONS ---
                   Row(
                     children: [
-                      // LIKE
                       IconButton(
-                        icon: Icon(
-                          isLikedByMe ? Icons.favorite : Icons.favorite_border,
-                          color: isLikedByMe ? Colors.redAccent : c5CreamGreen,
-                          size: 28,
-                        ),
+                        icon: Icon(isLikedByMe ? Icons.favorite : Icons.favorite_border, color: isLikedByMe ? Colors.redAccent : c5CreamGreen, size: 28),
                         onPressed: () => _toggleLike(likes, postId),
                       ),
-
-                      // COMMENT
                       IconButton(
                         icon: const Icon(Icons.chat_bubble_outline, color: c5CreamGreen, size: 26),
-                        onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(
-                              builder: (context) => CommentsScreen(postId: postId)
-                          ));
-                        },
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CommentsScreen(postId: postId))),
                       ),
-
                       const Spacer(),
-
-                      // SWIPE INDICATORS (Only show if it's an image post with > 1 image)
                       if (type == 'image' && imageUrls.length > 1)
                         Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: List.generate(imageUrls.length, (index) {
-                            return Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 3),
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _currentImageIndex == index ? c3MediumSage : c2DeepOlive,
-                              ),
-                            );
-                          }),
+                          children: List.generate(imageUrls.length, (index) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            width: 6, height: 6,
+                            decoration: BoxDecoration(shape: BoxShape.circle, color: _currentImageIndex == index ? c3MediumSage : c2DeepOlive),
+                          )),
                         ),
-
                       const Spacer(),
-
-                      // SAVE
-                      IconButton(
-                        icon: const Icon(Icons.bookmark_border, color: c5CreamGreen, size: 28),
-                        onPressed: () {},
-                      ),
+                      IconButton(icon: const Icon(Icons.bookmark_border, color: c5CreamGreen, size: 28), onPressed: () {}),
                     ],
                   ),
 
-                  // --- LIKES & CAPTION ---
+                  // --- CAPTION & STATS ---
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text("${likes.length} likes", style: const TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 8),
                         RichText(
                           text: TextSpan(
-                            style: const TextStyle(color: c5CreamGreen, fontSize: 14),
+                            style: const TextStyle(color: c5CreamGreen, fontSize: 15),
                             children: [
                               TextSpan(text: "$displayUsername ", style: const TextStyle(fontWeight: FontWeight.bold)),
                               TextSpan(text: post['caption'] ?? ""),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => CommentsScreen(postId: postId)));
-                          },
-                          child: Text("View all ${post['commentCount'] ?? 0} comments", style: const TextStyle(color: c4LightSage, fontSize: 14)),
-                        ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
+                        const Divider(color: c2DeepOlive),
+                        const SizedBox(height: 10),
                       ],
                     ),
                   )
@@ -291,10 +274,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 }
 
-// ============================================================================
-// DEDICATED INLINE VIDEO PLAYER WIDGET
-// We put this in a separate widget to manage memory correctly when pausing/playing
-// ============================================================================
+// ----------------------------------------------------------------------------
+// INLINE VIDEO PLAYER
+// ----------------------------------------------------------------------------
 class DetailVideoPlayer extends StatefulWidget {
   final String videoUrl;
   const DetailVideoPlayer({super.key, required this.videoUrl});
@@ -316,7 +298,7 @@ class _DetailVideoPlayerState extends State<DetailVideoPlayer> {
           setState(() {
             _isInitialized = true;
             _controller.setLooping(true);
-            _controller.play(); // Auto-play when opened
+            _controller.play();
           });
         }
       });
@@ -324,7 +306,7 @@ class _DetailVideoPlayerState extends State<DetailVideoPlayer> {
 
   @override
   void dispose() {
-    _controller.dispose(); // Kills the video to save RAM when you go back to profile
+    _controller.dispose();
     super.dispose();
   }
 
@@ -333,28 +315,18 @@ class _DetailVideoPlayerState extends State<DetailVideoPlayer> {
     if (!_isInitialized) {
       return const Center(child: CircularProgressIndicator(color: c3MediumSage));
     }
-
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _controller.value.isPlaying ? _controller.pause() : _controller.play();
-        });
-      },
+      onTap: () => setState(() => _controller.value.isPlaying ? _controller.pause() : _controller.play()),
       child: Stack(
         alignment: Alignment.center,
         children: [
-          SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: _controller.value.size.width,
-                height: _controller.value.size.height,
-                child: VideoPlayer(_controller),
-              ),
-            ),
-          ),
+          AspectRatio(aspectRatio: _controller.value.aspectRatio, child: VideoPlayer(_controller)),
           if (!_controller.value.isPlaying)
-            const Icon(Icons.play_arrow, size: 80, color: Colors.white54),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.4), shape: BoxShape.circle),
+              child: const Icon(Icons.play_arrow, size: 50, color: Colors.white),
+            ),
         ],
       ),
     );

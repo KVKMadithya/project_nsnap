@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:video_player/video_player.dart';
 import '../posting/comments_screen.dart';
-import 'view_profile_screen.dart'; // NEW: Import the View Profile Screen
+import 'view_profile_screen.dart';
 
 // Palette Reference
 const Color c1DeepForest = Color(0xFF0F2A1D);
@@ -24,16 +24,37 @@ class VideoFeedScreen extends StatefulWidget {
 class _VideoFeedScreenState extends State<VideoFeedScreen> {
   int _currentPageIndex = 0;
 
+  // FIX 1: Define the Stream and Controller outside the build method
+  late final Stream<QuerySnapshot> _videoStream;
+  late final PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the controller to remember scroll position
+    _pageController = PageController(initialPage: 0);
+
+    // Initialize the stream ONCE so it doesn't reset when swiping
+    _videoStream = FirebaseFirestore.instance
+        .collection('posts')
+        .where('type', isEqualTo: 'video')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  @override
+  void dispose() {
+    // Always dispose controllers to prevent memory leaks!
+    _pageController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('posts')
-            .where('type', isEqualTo: 'video')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
+        stream: _videoStream, // Use the cached stream here
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: c3MediumSage));
@@ -47,6 +68,7 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
 
           return PageView.builder(
             scrollDirection: Axis.vertical,
+            controller: _pageController, // FIX 2: Attach the controller
             itemCount: snapshot.data!.docs.length,
             onPageChanged: (index) {
               setState(() {
@@ -57,7 +79,6 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
               var post = snapshot.data!.docs[index].data() as Map<String, dynamic>;
               bool isPlaying = (index == _currentPageIndex) && widget.isActive;
 
-              // The unique Key forces Flutter to build a new player
               return VideoPlayerItem(
                   key: ValueKey(post['postId']),
                   postData: post,
@@ -87,8 +108,6 @@ class VideoPlayerItem extends StatefulWidget {
 class _VideoPlayerItemState extends State<VideoPlayerItem> {
   late VideoPlayerController _videoController;
   bool _isInitialized = false;
-
-  // NEW: State variables for the double-tap animation
   bool _showHeartAnimation = false;
 
   final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
@@ -98,6 +117,8 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     super.initState();
     _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.postData['videoUrl']))
       ..initialize().then((_) {
+        // Prevent setting state if the widget was removed from the tree during init
+        if (!mounted) return;
         setState(() {
           _isInitialized = true;
           _videoController.setLooping(true);
@@ -126,7 +147,6 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     }
   }
 
-  // --- UPGRADED LIKE LOGIC ---
   Future<void> _toggleLike(List currentLikes, String postId, String postOwnerId) async {
     bool isLiked = currentLikes.contains(currentUserId);
     if (isLiked) {
@@ -134,7 +154,6 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     } else {
       await FirebaseFirestore.instance.collection('posts').doc(postId).update({'likes': FieldValue.arrayUnion([currentUserId])});
 
-      // SEND NOTIFICATION
       if (currentUserId != postOwnerId) {
         await FirebaseFirestore.instance
             .collection('users')
@@ -150,21 +169,17 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     }
   }
 
-  // --- NEW: DOUBLE TAP LOGIC ---
   void _handleDoubleTap(List currentLikes, String postId, String postOwnerId) {
     bool isLiked = currentLikes.contains(currentUserId);
 
-    // Only execute if they haven't already liked it
     if (!isLiked) {
       _toggleLike(currentLikes, postId, postOwnerId);
     }
 
-    // Trigger the big heart animation regardless
     setState(() {
       _showHeartAnimation = true;
     });
 
-    // Hide the heart after 800 milliseconds
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
         setState(() {
@@ -174,7 +189,6 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     });
   }
 
-  // --- SAVE LOGIC ---
   Future<void> _toggleSave(List currentSaves, String postId) async {
     bool isSaved = currentSaves.contains(currentUserId);
     if (isSaved) {
@@ -201,16 +215,13 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 1. THE VIDEO PLAYER WITH GESTURES
         _isInitialized
             ? GestureDetector(
-          // Single tap to pause/play
           onTap: () {
             setState(() {
               _videoController.value.isPlaying ? _videoController.pause() : _videoController.play();
             });
           },
-          // NEW: Double tap to like!
           onDoubleTap: () => _handleDoubleTap(likes, postId, postOwnerId),
           child: SizedBox.expand(
             child: FittedBox(
@@ -225,13 +236,11 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
         )
             : const Center(child: CircularProgressIndicator(color: c3MediumSage)),
 
-        // Play Pause Icon Overlay
         if (_isInitialized && !_videoController.value.isPlaying)
           const Center(
             child: Icon(Icons.play_arrow, size: 80, color: Colors.white54),
           ),
 
-        // --- NEW: THE BIG ANIMATED HEART ---
         if (_showHeartAnimation)
           Center(
             child: TweenAnimationBuilder(
@@ -239,7 +248,6 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
               tween: Tween<double>(begin: 0.5, end: 1.5),
               builder: (context, double scale, child) {
                 return Opacity(
-                  // Fades out as it grows
                   opacity: 1.0 - ((scale - 0.5) / 1.0).clamp(0.0, 1.0),
                   child: Transform.scale(
                     scale: scale,
@@ -260,13 +268,12 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
               gradient: LinearGradient(
                 begin: Alignment.bottomCenter,
                 end: Alignment.topCenter,
-                colors: [Colors.black.withOpacity(0.8), Colors.transparent],
+                colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent],
               ),
             ),
           ),
         ),
 
-        // 3. CAPTION & USERNAME
         Positioned(
           bottom: 150,
           left: 16,
@@ -292,7 +299,6 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
           ),
         ),
 
-        // 4. INTERACTION BUTTONS
         Positioned(
           bottom: 150,
           right: 8,

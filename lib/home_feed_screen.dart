@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // Ensure this is installed!
+import 'package:cached_network_image/cached_network_image.dart';
+
 import '../posting/comments_screen.dart';
 import '../posting/vibe_viewer_screen.dart';
+import '../messaging/inbox_screen.dart';
 import 'notifications_screen.dart';
 import 'view_profile_screen.dart';
 import '../posting/create_post_screen.dart';
 import '../posting/create_video_screen.dart';
 import '../posting/create_vibe_screen.dart';
+import '../posting/post_detail_screen.dart';
+
+// --- NEW IMPORT ---
+import 'living_photo_viewer.dart';
 
 // Palette Reference
 const Color c1DeepForest = Color(0xFF0F2A1D);
@@ -73,7 +79,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: c1DeepForest,
-      appBar: _buildAppBar(), // Now defined below!
+      appBar: _buildAppBar(),
       body: Column(
         children: [
           _buildVibesBar(),
@@ -84,9 +90,6 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
     );
   }
 
-  // =======================================================================
-  // APP BAR (RESTORED)
-  // =======================================================================
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: c1DeepForest,
@@ -109,10 +112,7 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
       title: const Text("Nsnap", style: TextStyle(color: c5CreamGreen, fontSize: 28, fontWeight: FontWeight.bold)),
       actions: [
         _buildNotificationIcon(),
-        IconButton(
-          icon: const Icon(Icons.send_outlined, color: c5CreamGreen),
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("DMs coming soon!"))),
-        ),
+        _buildMessageIcon(),
       ],
     );
   }
@@ -162,9 +162,52 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
     );
   }
 
-  // =======================================================================
-  // VIBES BAR (WITH CACHING)
-  // =======================================================================
+  Widget _buildMessageIcon() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .where('users', arrayContains: currentUserId)
+          .where('isRead', isEqualTo: false)
+          .snapshots(),
+      builder: (context, snapshot) {
+        bool hasUnreadMessage = false;
+
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          hasUnreadMessage = snapshot.data!.docs.any((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            return data['lastSenderId'] != currentUserId;
+          });
+        }
+
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.send_outlined, color: c5CreamGreen),
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const InboxScreen()));
+              },
+            ),
+            if (hasUnreadMessage)
+              Positioned(
+                top: 14, right: 14,
+                child: Container(
+                  width: 10, height: 10,
+                  decoration: const BoxDecoration(
+                      color: Colors.redAccent,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(color: Colors.black26, blurRadius: 4, spreadRadius: 1)
+                      ]
+                  ),
+                ),
+              )
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildVibesBar() {
     DateTime twentyFourHoursAgo = DateTime.now().subtract(const Duration(hours: 24));
     return SizedBox(
@@ -191,29 +234,47 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             itemCount: uids.length,
             itemBuilder: (context, index) {
-              var userVibes = grouped[uids[index]]!;
-              return GestureDetector(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => VibeViewerScreen(targetUserId: uids[index]))),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c3MediumSage, width: 3)),
-                        child: CircleAvatar(
-                          radius: 32,
-                          backgroundColor: c2DeepOlive,
-                          backgroundImage: userVibes.first['profilePicUrl'] != ""
-                              ? CachedNetworkImageProvider(userVibes.first['profilePicUrl'])
-                              : null,
+              String targetUserId = uids[index];
+
+              return FutureBuilder<DocumentSnapshot>(
+                  future: FirebaseFirestore.instance.collection('users').doc(targetUserId).get(),
+                  builder: (context, userSnap) {
+                    String displayUsername = "Loading...";
+                    String? displayPfp;
+
+                    if (userSnap.hasData && userSnap.data!.exists) {
+                      var userData = userSnap.data!.data() as Map<String, dynamic>;
+                      displayUsername = userData['username'] ?? "User";
+                      displayPfp = userData['profilePicUrl'];
+                    }
+
+                    return GestureDetector(
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => VibeViewerScreen(targetUserId: targetUserId))),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c3MediumSage, width: 3)),
+                              child: CircleAvatar(
+                                radius: 32,
+                                backgroundColor: c2DeepOlive,
+                                backgroundImage: (displayPfp != null && displayPfp.isNotEmpty)
+                                    ? CachedNetworkImageProvider(displayPfp)
+                                    : null,
+                                child: (displayPfp == null || displayPfp.isEmpty)
+                                    ? const Icon(Icons.person, color: Colors.white, size: 30)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(displayUsername, style: const TextStyle(color: c5CreamGreen, fontSize: 12)),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(userVibes.first['username'] ?? "User", style: const TextStyle(color: c5CreamGreen, fontSize: 12)),
-                    ],
-                  ),
-                ),
+                    );
+                  }
               );
             },
           );
@@ -223,23 +284,29 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
   }
 
   // =======================================================================
-  // POST FEED (WITH CACHING)
+  // POST FEED - STRICTLY IMAGES ONLY
   // =======================================================================
   Widget _buildPostFeed() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('posts').where('type', isEqualTo: 'image').orderBy('createdAt', descending: true).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('posts')
+          .where('type', isEqualTo: 'image') // <--- FIXED: Filtering out videos again!
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: c3MediumSage));
         return ListView.builder(
           itemCount: snapshot.data!.docs.length,
-          itemBuilder: (context, index) => _buildPostCard(snapshot.data!.docs[index].data() as Map<String, dynamic>),
+          itemBuilder: (context, index) {
+            var doc = snapshot.data!.docs[index];
+            return _buildPostCard(doc.data() as Map<String, dynamic>, doc.id);
+          },
         );
       },
     );
   }
 
-  Widget _buildPostCard(Map<String, dynamic> post) {
-    String postId = post['postId'];
+  Widget _buildPostCard(Map<String, dynamic> post, String postId) {
     String postOwnerId = post['userId'];
     List imageUrls = post['imageUrls'] ?? [];
     List likes = post['likes'] ?? [];
@@ -250,24 +317,65 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ListTile(
-          leading: CircleAvatar(
-            backgroundImage: post['profilePicUrl'] != null ? CachedNetworkImageProvider(post['profilePicUrl']) : null,
-          ),
-          title: Text(post['username'] ?? "Nsnap", style: const TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold)),
+        FutureBuilder<DocumentSnapshot>(
+            future: FirebaseFirestore.instance.collection('users').doc(postOwnerId).get(),
+            builder: (context, userSnap) {
+              String displayUsername = "Loading...";
+              String? displayPfp;
+
+              if (userSnap.hasData && userSnap.data!.exists) {
+                var userData = userSnap.data!.data() as Map<String, dynamic>;
+                displayUsername = userData['username'] ?? "Nsnap User";
+                displayPfp = userData['profilePicUrl'];
+              }
+
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ViewProfileScreen(targetUserId: postOwnerId))),
+                  child: CircleAvatar(
+                    backgroundColor: c2DeepOlive,
+                    backgroundImage: (displayPfp != null && displayPfp.isNotEmpty)
+                        ? CachedNetworkImageProvider(displayPfp)
+                        : null,
+                    child: (displayPfp == null || displayPfp.isEmpty)
+                        ? const Icon(Icons.person, color: Colors.white)
+                        : null,
+                  ),
+                ),
+                title: GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ViewProfileScreen(targetUserId: postOwnerId))),
+                  child: Text(displayUsername, style: const TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold)),
+                ),
+              );
+            }
         ),
+
+        // --- CONTENT ZONE (Images Only) ---
         SizedBox(
           height: 400,
           child: PageView.builder(
             allowImplicitScrolling: true,
             itemCount: imageUrls.length,
-            itemBuilder: (context, index) => CachedNetworkImage(
-              imageUrl: imageUrls[index],
-              fit: BoxFit.cover,
-              placeholder: (context, url) => Container(color: c2DeepOlive),
-            ),
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () {
+                  // Routes correctly to Post Detail with the required postId
+                  Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => PostDetailScreen(postData: post, postId: postId)
+                  ));
+                },
+                child: CachedNetworkImage(
+                  imageUrl: imageUrls[index],
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(color: c2DeepOlive),
+                  errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: c4LightSage),
+                ),
+              );
+            },
           ),
         ),
+
         Row(
           children: [
             IconButton(
@@ -285,7 +393,6 @@ class _HomeFeedScreenState extends State<HomeFeedScreen> {
             ),
           ],
         ),
-        // Adding the rest of the padding code to ensure variables are used
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Column(

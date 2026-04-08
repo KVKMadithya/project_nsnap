@@ -51,7 +51,6 @@ class _ARDropScreenState extends State<ARDropScreen> {
     });
 
     try {
-      // 1. Get position AND heading
       Position position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.bestForNavigation
       );
@@ -63,7 +62,6 @@ class _ARDropScreenState extends State<ARDropScreen> {
       await storageRef.putFile(_selectedImage!);
       String downloadUrl = await storageRef.getDownloadURL();
 
-      // 2. Save with 'heading' field
       await FirebaseFirestore.instance.collection('ar_drops').doc(dropId).set({
         'dropId': dropId,
         'userId': currentUserId,
@@ -71,7 +69,7 @@ class _ARDropScreenState extends State<ARDropScreen> {
         'latitude': position.latitude,
         'longitude': position.longitude,
         'altitude': position.altitude,
-        'heading': position.heading, // <--- NEW: Saves the direction user is facing
+        'heading': position.heading,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -99,101 +97,109 @@ class _ARDropScreenState extends State<ARDropScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent, // Ensures camera shows through
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text("AR Spacial Drop", style: TextStyle(color: c5CreamGreen, fontSize: 16)),
         iconTheme: const IconThemeData(color: c5CreamGreen),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.8,
-                height: MediaQuery.of(context).size.height * 0.5,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: _selectedImage != null ? c3MediumSage : c2DeepOlive, width: 2),
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (_selectedImage == null)
-                      const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.filter_center_focus, size: 80, color: c2DeepOlive),
-                          SizedBox(height: 10),
-                          Text("Position Frame", style: TextStyle(color: c4LightSage)),
-                        ],
-                      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Container(
+                  width: MediaQuery.of(context).size.width * 0.8,
+                  height: MediaQuery.of(context).size.height * 0.5,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: _selectedImage != null ? c3MediumSage : c2DeepOlive, width: 2),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (_selectedImage == null)
+                        const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.filter_center_focus, size: 80, color: c2DeepOlive),
+                            SizedBox(height: 10),
+                            Text("Position Frame", style: TextStyle(color: c4LightSage)),
+                          ],
+                        ),
 
-                    if (_selectedImage != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: Image.file(_selectedImage!, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
-                      ),
-
-                    if (_selectedImage != null)
-                      Container(
-                        decoration: BoxDecoration(
+                      if (_selectedImage != null)
+                        ClipRRect(
                           borderRadius: BorderRadius.circular(22),
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.5)],
+                          child: Image.file(_selectedImage!, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
+                        ),
+
+                      if (_selectedImage != null)
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.black.withValues(alpha: 0.5)],
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+            Container(
+              padding: EdgeInsets.only(
+                top: 30,
+                left: 30,
+                right: 30,
+                bottom: bottomPadding > 0 ? bottomPadding + 20 : 40,
+              ),
+              decoration: const BoxDecoration(
+                color: c1DeepForest,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_statusText, style: const TextStyle(color: c4LightSage, fontSize: 14)),
+                  const SizedBox(height: 20),
 
-          Container(
-            padding: const EdgeInsets.all(30),
-            decoration: const BoxDecoration(
-              color: c1DeepForest,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_statusText, style: const TextStyle(color: c4LightSage, fontSize: 14)),
-                const SizedBox(height: 20),
-
-                if (_selectedImage == null)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildCircularButton(Icons.photo_library, "Gallery", () => _getImage(ImageSource.gallery)),
-                      _buildCircularButton(Icons.camera_alt, "Camera", () => _getImage(ImageSource.camera)),
-                    ],
-                  )
-                else
-                  _isProcessing
-                      ? const CircularProgressIndicator(color: c3MediumSage)
-                      : SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton(
-                      onPressed: _createARDrop,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: c3MediumSage,
-                        foregroundColor: c1DeepForest,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  if (_selectedImage == null)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildCircularButton(Icons.photo_library, "Gallery", () => _getImage(ImageSource.gallery)),
+                        _buildCircularButton(Icons.camera_alt, "Camera", () => _getImage(ImageSource.camera)),
+                      ],
+                    )
+                  else
+                    _isProcessing
+                        ? const CircularProgressIndicator(color: c3MediumSage)
+                        : SizedBox(
+                      width: double.infinity,
+                      height: 55,
+                      child: ElevatedButton(
+                        onPressed: _createARDrop,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: c3MediumSage,
+                          foregroundColor: c1DeepForest,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        ),
+                        child: const Text("ANCHOR IN 3D SPACE", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                       ),
-                      child: const Text("ANCHOR IN 3D SPACE", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

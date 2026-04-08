@@ -22,11 +22,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
-  // IMPROVEMENT: Moving the screens list to a getter to keep build() clean
   List<Widget> get _screens => [
     const HomeSwipeWrapper(),
     VideoFeedScreen(isActive: _currentIndex == 1),
-    const ARDropScreen(), // The center AR "Portal"
+    const SizedBox(), // Placeholder for the AR Camera trigger
     const LeaderboardScreen(),
     const ProfileScreen(),
   ];
@@ -39,12 +38,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: c1DeepForest,
-      // Using extendBody allows content to flow behind the floating nav bar
       extendBody: true,
       body: Stack(
         children: [
-          // Using IndexedStack prevents the screens from "reloading"
-          // every time you switch tabs (saves scroll position!)
           IndexedStack(
             index: _currentIndex,
             children: _screens,
@@ -58,8 +54,6 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(
               height: 70,
               decoration: BoxDecoration(
-                // Logic: If we are on the Video (1) or AR (2) tab,
-                // we make the bar slightly more transparent for immersion
                 color: (_currentIndex == 1 || _currentIndex == 2)
                     ? c2DeepOlive.withValues(alpha: 0.6)
                     : c2DeepOlive,
@@ -74,10 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Stack(
                 children: [
-                  // SLIDING SPOTLIGHT
                   AnimatedPositioned(
                     duration: const Duration(milliseconds: 350),
-                    curve: Curves.easeOutBack, // Added a little "bounce" to the slide
+                    curve: Curves.easeOutBack,
                     left: tabWidth * _currentIndex,
                     top: 0,
                     bottom: 0,
@@ -120,7 +113,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
-                  // ICONS
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -144,7 +136,19 @@ class _HomeScreenState extends State<HomeScreen> {
     bool isSelected = _currentIndex == index;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() => _currentIndex = index),
+      onTap: () {
+        if (index == 2) {
+          // Open AR Camera full-screen
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+              builder: (context) => const ARDropScreen(),
+            ),
+          );
+        } else {
+          // Normal tab switching
+          setState(() => _currentIndex = index);
+        }
+      },
       child: SizedBox(
         width: (MediaQuery.of(context).size.width - 48) / 5,
         child: Center(
@@ -153,7 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Icon(
               isSelected ? activeIcon : inactiveIcon,
               key: ValueKey<int>(_currentIndex == index ? 1 : 0),
-              size: isSelected ? 30 : 26, // Pop the icon size slightly when selected
+              size: isSelected ? 30 : 26,
               color: isSelected ? c5CreamGreen : c4LightSage.withValues(alpha: 0.5),
             ),
           ),

@@ -1,4 +1,4 @@
-import java.util.Properties // <--- ADD THIS IMPORT AT THE VERY TOP
+import java.util.Properties
 
 // --- LOGIC TO READ LOCAL.PROPERTIES ---
 val localProperties = Properties()
@@ -9,8 +9,9 @@ if (localPropertiesFile.exists()) {
 
 plugins {
     id("com.android.application")
+    // Use the explicit ID for Kotlin that matches your settings.gradle.kts
+    id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
-    id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -24,9 +25,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     defaultConfig {
         applicationId = "com.example.nsnap"
@@ -39,14 +37,13 @@ android {
         versionName = flutter.versionName
 
         // --- INJECT THE API KEY INTO ANDROID RESOURCES ---
-        // This takes the key from local.properties and creates a string resource 
-        // that the AndroidManifest.xml can see as "@string/GOOGLE_MAPS_API_KEY"
         val mapsKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
         resValue("string", "GOOGLE_MAPS_API_KEY", mapsKey)
     }
 
     buildTypes {
         release {
+            // Using the debug signing for now so you can test on your phone easily
             signingConfig = signingConfigs.getByName("debug")
         }
     }

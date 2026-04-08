@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // <--- NEW IMPORT
+import 'package:cached_network_image/cached_network_image.dart';
 import '../posting/post_detail_screen.dart';
+import '../posting/single_video_screen.dart';
 import '../ar_features/ar_map_screen.dart';
+import 'view_profile_screen.dart';
 
 // Palette
 const Color c1DeepForest = Color(0xFF0F2A1D);
@@ -68,11 +70,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   style: const TextStyle(color: c5CreamGreen),
                   onChanged: (value) {
                     setState(() {
-                      _searchQuery = value.toLowerCase();
+                      _searchQuery = value.toLowerCase().trim();
                     });
                   },
                   decoration: InputDecoration(
-                    hintText: "Search posts, captions, or users...",
+                    hintText: "Search users, posts, or captions...",
                     hintStyle: const TextStyle(color: c4LightSage),
                     prefixIcon: const Icon(Icons.search, color: c4LightSage),
                     suffixIcon: _searchQuery.isNotEmpty
@@ -136,7 +138,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
             const SizedBox(height: 12),
 
-            // 3. THE SMART FILTERED GRID (With Caching!)
+            // 3. THE USERS SEARCH ROW
+            if (_searchQuery.isNotEmpty) _buildUserSearchResults(),
+
+            // 4. THE SMART FILTERED GRID
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
@@ -173,7 +178,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
                   if (filteredDocs.isEmpty) {
                     return Center(
-                        child: Text("No results for '$_searchQuery' \nin $_selectedCategory",
+                        child: Text("No posts found for '$_searchQuery'",
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: c4LightSage, fontSize: 16)
                         )
@@ -190,38 +195,53 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     ),
                     itemCount: filteredDocs.length,
                     itemBuilder: (context, index) {
-                      var post = filteredDocs[index].data() as Map<String, dynamic>;
+                      var doc = filteredDocs[index];
+                      var post = doc.data() as Map<String, dynamic>;
+                      String docId = doc.id;
+
+                      // --- THE FIX: Safe image extraction ---
+                      String previewUrl = '';
+                      if (post['thumbnailUrl'] != null && post['thumbnailUrl'].toString().isNotEmpty) {
+                        previewUrl = post['thumbnailUrl'];
+                      } else if (post['imageUrls'] != null && (post['imageUrls'] as List).isNotEmpty) {
+                        previewUrl = post['imageUrls'][0];
+                      }
 
                       return GestureDetector(
                         onTap: () {
-                          Navigator.push(context, MaterialPageRoute(
-                              builder: (context) => PostDetailScreen(postData: post)
-                          ));
+                          if (post['type'] == 'video') {
+                            Navigator.push(context, MaterialPageRoute(
+                                builder: (context) => SingleVideoScreen(postData: post, postId: docId)
+                            ));
+                          } else {
+                            Navigator.push(context, MaterialPageRoute(
+                                builder: (context) => PostDetailScreen(postData: post, postId: docId)
+                            ));
+                          }
                         },
-                        child: Container(
-                          color: c2DeepOlive,
-                          // --- UPDATED: CACHED NETWORK IMAGE ---
-                          child: post['thumbnailUrl'] != null
-                              ? CachedNetworkImage(
-                            imageUrl: post['thumbnailUrl'],
-                            placeholder: (context, url) => const Center(
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: c3MediumSage,
-                                ),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(
+                              color: c2DeepOlive,
+                              child: previewUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                imageUrl: previewUrl,
+                                placeholder: (context, url) => Container(color: c2DeepOlive),
+                                errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: c4LightSage),
+                                fit: BoxFit.cover,
+                                memCacheHeight: 400,
+                              )
+                                  : const Icon(Icons.image, color: c4LightSage),
+                            ),
+                            // Video Icon Overlay
+                            if (post['type'] == 'video')
+                              const Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Icon(Icons.play_circle_outline, color: Colors.white, size: 20),
                               ),
-                            ),
-                            errorWidget: (context, url, error) => const Icon(
-                              Icons.broken_image,
-                              color: c4LightSage,
-                            ),
-                            fit: BoxFit.cover,
-                            memCacheHeight: 400, // Keeps it light on memory
-                          )
-                              : const Icon(Icons.image, color: c4LightSage),
+                          ],
                         ),
                       );
                     },
@@ -232,6 +252,86 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildUserSearchResults() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox();
+
+        var filteredUsers = snapshot.data!.docs.where((doc) {
+          var userData = doc.data() as Map<String, dynamic>;
+          String username = (userData['username'] ?? "").toString().toLowerCase();
+          String name = (userData['name'] ?? "").toString().toLowerCase();
+          return username.contains(_searchQuery) || name.contains(_searchQuery);
+        }).toList();
+
+        if (filteredUsers.isEmpty) return const SizedBox();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+              child: Text("Accounts", style: TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            SizedBox(
+              height: 100,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                itemCount: filteredUsers.length,
+                itemBuilder: (context, index) {
+                  var user = filteredUsers[index].data() as Map<String, dynamic>;
+                  String targetUserId = filteredUsers[index].id;
+                  String profilePicUrl = user['profilePicUrl'] ?? "";
+                  String displayUsername = user['username'] ?? "User";
+
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => ViewProfileScreen(targetUserId: targetUserId)
+                      ));
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(
+                            radius: 32,
+                            backgroundColor: c2DeepOlive,
+                            backgroundImage: profilePicUrl.isNotEmpty
+                                ? CachedNetworkImageProvider(profilePicUrl)
+                                : null,
+                            child: profilePicUrl.isEmpty
+                                ? const Icon(Icons.person, color: Colors.white, size: 30)
+                                : null,
+                          ),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: 70,
+                            child: Text(
+                              displayUsername,
+                              style: const TextStyle(color: c5CreamGreen, fontSize: 12),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Divider(color: c2DeepOlive, height: 20),
+          ],
+        );
+      },
     );
   }
 }

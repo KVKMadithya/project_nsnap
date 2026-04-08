@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import 'signup_screen.dart';
 
+// --- NEW IMPORTS FOR ROUTING ---
+import 'home_feed_screen.dart'; // Ensure this points to your actual main app screen
+import '../admin_side/admin_home_screen.dart'; // <--- UPDATED: Pointing to the Nav Bar Shell!
+
 // --- AESTHETIC CONFIGURATION (Educational Data from palette) ---
-// Dark Forest Green (Scaffold Background)
 const Color c1DeepForest = Color(0xFF0F2A1D);
-// Deep Olive (Inactive borders, subtle text)
 const Color c2DeepOlive = Color(0xFF375534);
-// Medium Sage Green (Primary Buttons, Active elements)
 const Color c3MediumSage = Color(0xFF6B9071);
-// Light Sage/Gray (Inactive buttons, soft highlights)
 const Color c4LightSage = Color(0xFFAEC3B0);
-// Very Light Cream Green (Panel/Card Background, Light Text)
 const Color c5CreamGreen = Color(0xFFE3EED4);
-// --- ---
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,14 +29,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final FocusNode _passFocus = FocusNode();
 
   bool _isLoading = false;
-
-  // NEW: State variables to track if a field is missing
   bool _emailError = false;
   bool _passError = false;
 
   @override
   void dispose() {
-    // Clean up controllers and focus nodes to prevent memory leaks!
     _emailController.dispose();
     _passwordController.dispose();
     _emailFocus.dispose();
@@ -44,18 +41,54 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // ===========================================================================
+  // THE GATEKEEPER: Checks Firestore for the "admin" role before routing
+  // ===========================================================================
+  Future<void> _routeUserAfterLogin() async {
+    User? user = FirebaseAuth.instance.currentUser;
+
+    if (user != null) {
+      try {
+        // Fetch their specific profile from the database
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+        if (userDoc.exists) {
+          // Look for the role field. If it doesn't exist, default to 'user'
+          String role = (userDoc.data() as Map<String, dynamic>)['role'] ?? 'user';
+
+          if (mounted) {
+            if (role == 'admin') {
+              // ACCESS GRANTED: Send to Admin Nav Bar Shell
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminHomeScreen())); // <--- UPDATED!
+            } else {
+              // STANDARD USER: Send to the Main App
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeFeedScreen()));
+            }
+          }
+        } else {
+          // Failsafe: If they don't have a Firestore doc yet, send them to the normal app
+          if (mounted) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeFeedScreen()));
+          }
+        }
+      } catch (e) {
+        // Failsafe: If the database check fails, default to normal user routing
+        if (mounted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeFeedScreen()));
+        }
+      }
+    }
+  }
+
   void _handleLogin() async {
-    // 1. Check if the fields are empty and remove any trailing spaces
     final emailText = _emailController.text.trim();
     final passText = _passwordController.text.trim();
 
-    // 2. Update the error state to trigger the red glow if missing
     setState(() {
       _emailError = emailText.isEmpty;
       _passError = passText.isEmpty;
     });
 
-    // 3. If either field is empty, show the SnackBar and STOP the login process
     if (_emailError || _passError) {
       String errorMessage = "Please enter your email and password.";
       if (_emailError && !_passError) errorMessage = "Please enter your university email.";
@@ -64,46 +97,55 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(errorMessage, style: const TextStyle(fontWeight: FontWeight.bold)),
           backgroundColor: Colors.redAccent.shade400));
-      return; // This stops the code here so Firebase doesn't crash!
+      return;
     }
 
-    // 4. If fields are filled, proceed with Firebase Login
     setState(() => _isLoading = true);
     final result = await AuthService().login(emailText, passText);
-    setState(() => _isLoading = false);
 
-    if (result != "Success" && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result!),
-          backgroundColor: Colors.redAccent.shade400));
+    if (result == "Success") {
+      // Login worked! Now check their role and route them.
+      await _routeUserAfterLogin();
+    } else {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result!),
+            backgroundColor: Colors.redAccent.shade400));
+      }
     }
   }
 
   void _handleGoogleLogin() async {
     setState(() => _isLoading = true);
     final result = await AuthService().signInWithGoogle();
-    setState(() => _isLoading = false);
-    if (result != "Success" && result != "Cancelled" && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result!),
-          backgroundColor: Colors.redAccent.shade400));
+
+    if (result == "Success") {
+      // Google Login worked! Check their role and route them.
+      await _routeUserAfterLogin();
+    } else {
+      setState(() => _isLoading = false);
+      if (result != "Cancelled" && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result!),
+            backgroundColor: Colors.redAccent.shade400));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: c1DeepForest, // Foundation Color (Premium background)
+      backgroundColor: c1DeepForest,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
           child: Column(
             children: [
               const SizedBox(height: 50),
-              // Logo/Aesthetic Header Area
               const Text("Nsnap",
                   style: TextStyle(
-                      fontFamily: 'Modern Sans', // Example premium font, defaults if missing
+                      fontFamily: 'Modern Sans',
                       fontSize: 60,
                       fontWeight: FontWeight.bold,
                       color: c5CreamGreen)),
@@ -112,12 +154,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(fontSize: 18, color: c4LightSage)),
               const SizedBox(height: 60),
 
-              // The Premium "Pill" Panel Layer
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(32.0),
                 decoration: BoxDecoration(
-                  color: c5CreamGreen, // Light base panel against dark background
+                  color: c5CreamGreen,
                   borderRadius:
                   const BorderRadius.all(Radius.circular(30.0)),
                   boxShadow: [
@@ -141,48 +182,44 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: TextStyle(fontSize: 16, color: c2DeepOlive)),
                     const SizedBox(height: 40),
 
-                    // Modern Input with Focus Animation & Error State
                     _buildAnimatedTextField(
                         controller: _emailController,
                         focusNode: _emailFocus,
                         label: "University Email",
                         keyboardType: TextInputType.emailAddress,
-                        hasError: _emailError), // Pass the error state
+                        hasError: _emailError),
                     const SizedBox(height: 16),
                     _buildAnimatedTextField(
                         controller: _passwordController,
                         focusNode: _passFocus,
                         label: "Password",
                         obscureText: true,
-                        hasError: _passError), // Pass the error state
+                        hasError: _passError),
                     const SizedBox(height: 24),
 
-                    // Primary Button with interactive scaling effect
                     _isLoading
                         ? _buildInteractiveLoader()
                         : _buildPremiumButton(
                       label: "Log In",
                       onPressed: _handleLogin,
-                      primaryColor: c3MediumSage, // Palette Primary Green
+                      primaryColor: c3MediumSage,
                       textColor: c5CreamGreen,
                     ),
                     const SizedBox(height: 20),
                     const Text("OR", style: TextStyle(color: c4LightSage)),
                     const SizedBox(height: 20),
 
-                    // Modern Social Button
                     _buildPremiumButton(
                       label: "Sign in with Google",
                       icon: Image.network(
                           'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/120px-Google_%22G%22_logo.svg.png',
                           height: 24),
                       onPressed: _isLoading ? null : _handleGoogleLogin,
-                      primaryColor: c4LightSage, // Palette Accent Gray
+                      primaryColor: c4LightSage,
                       textColor: c1DeepForest,
                     ),
                     const SizedBox(height: 24),
 
-                    // Interactively highlighted Register Link
                     _buildInteractiveLink(
                         label: "Don't have an account? Register",
                         onPressed: () {
@@ -204,21 +241,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // --- INTERACTIVE UI WIDGET BUILDERS ---
 
-  // Builds a premium input field with focus animation & error integration
   Widget _buildAnimatedTextField(
       {required TextEditingController controller,
         required FocusNode focusNode,
         required String label,
         bool obscureText = false,
         TextInputType keyboardType = TextInputType.text,
-        bool hasError = false}) { // Added hasError parameter
+        bool hasError = false}) {
 
     return AnimatedBuilder(
       animation: focusNode,
       builder: (context, child) {
         bool hasFocus = focusNode.hasFocus;
 
-        // Dynamic colors: If error is true, it overrides the normal colors to red
         Color labelColor = hasError ? Colors.redAccent.shade400 : (hasFocus ? c3MediumSage : c2DeepOlive);
         Color enabledLineColor = hasError ? Colors.redAccent.shade400 : c2DeepOlive;
         Color focusedLineColor = hasError ? Colors.redAccent.shade400 : c3MediumSage;
@@ -226,7 +261,6 @@ class _LoginScreenState extends State<LoginScreen> {
         return TextField(
           controller: controller,
           focusNode: focusNode,
-          // When the user starts typing again, we want to clear the error visually (optional but good UX)
           onChanged: (value) {
             if (hasError) {
               setState(() {
@@ -252,7 +286,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // A custom animated loader that oscillates palette colors
   Widget _buildInteractiveLoader() {
     return SizedBox(
       height: 50,
@@ -266,7 +299,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // A premium looking button style
   Widget _buildPremiumButton(
       {required String label,
         required VoidCallback? onPressed,
@@ -290,7 +322,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // An animated link
   Widget _buildInteractiveLink(
       {required String label, required VoidCallback onPressed}) {
     return TextButton(

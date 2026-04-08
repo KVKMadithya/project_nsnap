@@ -6,6 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// --- NEW IMPORTS FOR THUMBNAILS ---
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:path_provider/path_provider.dart';
+
 // Palette Reference
 const Color c1DeepForest = Color(0xFF0F2A1D);
 const Color c2DeepOlive = Color(0xFF375534);
@@ -29,10 +33,8 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
 
   final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
-  // --- NEW: CATEGORY SYSTEM ---
   List<String> _selectedCategories = [];
 
-  // 40+ Categories tailored for Video, Edits, and Pop Culture!
   final List<String> _availableCategories = [
     "Cinematography", "Vlog", "Short Film", "Music Video", "Documentary",
     "Action", "Comedy", "Cosplay", "Anime", "TV Series", "Movies", "Gaming",
@@ -46,13 +48,11 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
   // 1. Pick a Single Video
   Future<void> _pickVideo() async {
     final ImagePicker picker = ImagePicker();
-    // Opens the gallery but restricts the user to picking videos only
     final XFile? video = await picker.pickVideo(source: ImageSource.gallery);
 
     if (video != null) {
       File videoFile = File(video.path);
 
-      // Initialize the video player so they can preview what they selected
       _videoController = VideoPlayerController.file(videoFile)
         ..initialize().then((_) {
           setState(() {
@@ -62,6 +62,28 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
           });
         });
     }
+  }
+
+  // --- NEW: GENERATE THUMBNAIL FUNCTION ---
+  Future<File?> _generateThumbnail(String videoPath) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+
+      final thumbnailPath = await VideoThumbnail.thumbnailFile(
+        video: videoPath,
+        thumbnailPath: tempDir.path,
+        imageFormat: ImageFormat.JPEG,
+        maxHeight: 400, // Keeps it lightweight for the grid
+        quality: 75,
+      );
+
+      if (thumbnailPath != null) {
+        return File(thumbnailPath);
+      }
+    } catch (e) {
+      print("Error generating thumbnail: $e");
+    }
+    return null;
   }
 
   // 2. The Upload Logic
@@ -86,26 +108,44 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
 
       String postId = DateTime.now().millisecondsSinceEpoch.toString();
 
+      // --- NEW: CREATE THE THUMBNAIL BEFORE UPLOADING ---
+      File? thumbnailFile = await _generateThumbnail(_selectedVideo!.path);
+
       // B. Upload Video to Firebase Storage
-      Reference storageRef = FirebaseStorage.instance
+      Reference videoStorageRef = FirebaseStorage.instance
           .ref()
           .child('videos')
           .child(currentUserId)
           .child('$postId.mp4');
 
-      UploadTask uploadTask = storageRef.putFile(_selectedVideo!);
-      TaskSnapshot snapshot = await uploadTask;
-      String downloadUrl = await snapshot.ref.getDownloadURL();
+      UploadTask videoUploadTask = videoStorageRef.putFile(_selectedVideo!);
+      TaskSnapshot videoSnapshot = await videoUploadTask;
+      String videoDownloadUrl = await videoSnapshot.ref.getDownloadURL();
+
+      // --- NEW: UPLOAD THUMBNAIL TO STORAGE ---
+      String thumbnailUrl = '';
+      if (thumbnailFile != null) {
+        Reference thumbStorageRef = FirebaseStorage.instance
+            .ref()
+            .child('thumbnails')
+            .child(currentUserId)
+            .child('$postId.jpg');
+
+        UploadTask thumbUploadTask = thumbStorageRef.putFile(thumbnailFile);
+        TaskSnapshot thumbSnapshot = await thumbUploadTask;
+        thumbnailUrl = await thumbSnapshot.ref.getDownloadURL();
+      }
 
       // C. Save the Post Data to Firestore
       await FirebaseFirestore.instance.collection('posts').doc(postId).set({
         'postId': postId,
         'userId': currentUserId,
         'username': myUsername,
-        'profilePicUrl': myProfilePic, // Saving Profile Pic for the UI
+        'profilePicUrl': myProfilePic,
         'caption': _captionController.text.trim(),
-        'categories': _selectedCategories, // NEW: Saves the selected tags!
-        'videoUrl': downloadUrl,
+        'categories': _selectedCategories,
+        'videoUrl': videoDownloadUrl,
+        'thumbnailUrl': thumbnailUrl, // --- NEW: SAVING THE THUMBNAIL URL ---
         'type': 'video',
         'createdAt': FieldValue.serverTimestamp(),
         'likes': [],
@@ -154,7 +194,6 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // VIDEO PREVIEW AREA
             if (_selectedVideo == null)
               GestureDetector(
                 onTap: _pickVideo,
@@ -201,13 +240,11 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
                   ],
                 ),
               ),
-
-            // CAPTION INPUT AREA
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: TextField(
                 controller: _captionController,
-                maxLines: 3, // Reduced slightly to make room for categories
+                maxLines: 3,
                 style: const TextStyle(color: c5CreamGreen),
                 decoration: InputDecoration(
                   hintText: "Write a caption for your video...",
@@ -221,8 +258,6 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
                 ),
               ),
             ),
-
-            // --- NEW: CATEGORY SELECTOR UI ---
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Row(
@@ -242,10 +277,7 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 10),
-
-            // A bounded scrollable box for the chips
             Container(
               height: 200,
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -257,11 +289,11 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
                     bool isSelected = _selectedCategories.contains(category);
                     return FilterChip(
                       label: Text(category, style: TextStyle(
-                        color: isSelected ? c5CreamGreen : c1DeepForest, // VERY DARK GREEN!
-                        fontWeight: FontWeight.bold, // Made it bold for readability
+                        color: isSelected ? c5CreamGreen : c1DeepForest,
+                        fontWeight: FontWeight.bold,
                       )),
-                      backgroundColor: c4LightSage, // Lighter background so dark text is readable
-                      selectedColor: c1DeepForest, // Turns dark when selected
+                      backgroundColor: c4LightSage,
+                      selectedColor: c1DeepForest,
                       checkmarkColor: c5CreamGreen,
                       selected: isSelected,
                       shape: RoundedRectangleBorder(
@@ -288,7 +320,7 @@ class _CreateVideoScreenState extends State<CreateVideoScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 40), // Bottom padding
+            const SizedBox(height: 40),
           ],
         ),
       ),
