@@ -89,7 +89,7 @@ class _CreateVibeScreenState extends State<CreateVibeScreen> {
       if (mounted) Navigator.pop(context);
 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to upload Vibe: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to upload Vibes: $e")));
     }
 
     setState(() => _isUploading = false);
