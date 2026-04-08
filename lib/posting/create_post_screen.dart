@@ -63,7 +63,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   // 2. The Upload Logic
   Future<void> _uploadPost() async {
     if (_selectedImages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least one image.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please make sure to select at least one image.")));
       return;
     }
 
