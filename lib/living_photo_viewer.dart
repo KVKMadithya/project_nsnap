@@ -77,7 +77,7 @@ class _LivingPhotoViewerState extends State<LivingPhotoViewer> {
                         children: [
                           Icon(Icons.broken_image, color: Colors.white54, size: 50),
                           SizedBox(height: 10),
-                          Text("Failed to load image", style: TextStyle(color: Colors.white54)),
+                          Text("Failed to load the image", style: TextStyle(color: Colors.white54)),
                         ],
                       )
                   ),
