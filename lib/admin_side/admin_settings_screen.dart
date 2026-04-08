@@ -89,7 +89,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> with SingleTi
             Text("Admin Logout", style: TextStyle(color: c5CreamGreen, fontWeight: FontWeight.bold)),
           ],
         ),
-        content: const Text("Are you sure you want to securely log out of the Admin Console?", style: TextStyle(color: c4LightSage)),
+        content: const Text("Are you really sure you want to securely log out of the Admin Console?", style: TextStyle(color: c4LightSage)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
