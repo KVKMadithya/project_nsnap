@@ -70,7 +70,7 @@ class _ManagePostsScreenState extends State<ManagePostsScreen> {
           ],
         ),
         content: Text(
-          "Are you sure you want to permanently delete this $type? The user will receive a community guidelines violation notice.",
+          "Are you certain you want to permanently delete this $type? The user will receive a community guidelines violation notice.",
           style: const TextStyle(color: c4LightSage, height: 1.4),
         ),
         actions: [
